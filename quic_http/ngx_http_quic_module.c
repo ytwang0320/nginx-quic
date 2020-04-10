@@ -29,8 +29,10 @@ ngx_http_quic_check_and_rewrite_handler(ngx_cycle_t *cycle,
 static void ngx_do_quic_interval(ngx_event_t *ev);
 static ngx_int_t ngx_http_variable_quic_scheme(ngx_http_request_t *r,
                        ngx_http_variable_value_t *v, uintptr_t data);
-
-
+#ifdef UOA
+static ngx_int_t ngx_http_variable_uoa_remote_addr(ngx_http_request_t *r,
+                   ngx_http_variable_value_t *v, uintptr_t data);
+#endif
 
 static ngx_command_t  ngx_http_quic_commands[] = {
 
@@ -121,10 +123,37 @@ ngx_module_t  ngx_http_quic_module = {
 static ngx_http_variable_t  ngx_http_quic_vars[] = {
 
   // { ngx_string("scheme"),NULL,ngx_http_variable_quic_scheme,0,0,0 },
-  
+#ifdef UOA
+  { ngx_string("uoa_remote_addr"), NULL, ngx_http_variable_uoa_remote_addr, 0, 0, 0 },
+#endif  
   ngx_http_null_variable
 };
 
+#ifdef UOA
+static ngx_int_t
+ngx_http_variable_uoa_remote_addr(ngx_http_request_t *r,
+                    ngx_http_variable_value_t *v, uintptr_t data)
+{
+  v->len = 0;
+  v->valid = 1;
+  v->no_cacheable = 0;
+  v->not_found = 0;
+  
+  if (r->connection->uoa_addr_text.data) {
+    v->len = r->connection->uoa_addr_text.len;
+    v->data = r->connection->uoa_addr_text.data;
+  } else if (r->connection->addr_text.data) {
+    v->data = r->connection->addr_text.data;
+    v->len = r->connection->addr_text.len;
+  } else {
+    v->data = ngx_pnalloc(r->pool, 1);
+    ngx_memcpy(v->data, "-", 1);
+    v->len = 1;
+  }
+
+  return NGX_OK;
+}
+#endif
 
 static ngx_int_t
 ngx_http_quic_add_variables(ngx_conf_t *cf)

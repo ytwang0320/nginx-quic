@@ -108,6 +108,63 @@ ngx_http_quic_handler_buf_by_quic(ngx_connection_t *c)
   ngx_http_init_connection(c);
 }
 
+#ifdef UOA
+static void
+ngx_http_quic_handler_uoa_addr(ngx_connection_t *c)
+{
+  struct sockaddr_in *sin = NULL;
+  struct sockaddr_in6 *sin6 = NULL;
+  struct uoa_param_map map;
+  socklen_t mlen;
+
+  uint8_t af = c->sockaddr->sa_family;
+
+  switch (af) {      
+  case AF_INET: /* AF_INET */
+      sin = (struct sockaddr_in *) c->sockaddr;                
+      memset(&map, 0, sizeof(map));
+      map.af	= af;
+      map.sport = sin->sin_port;
+      map.dport = htons(443);
+      memmove(&map.saddr, &sin->sin_addr.s_addr, sizeof(struct in_addr));
+      mlen = sizeof(map);
+	  
+      if (getsockopt(c->fd, IPPROTO_IP, UOA_SO_GET_LOOKUP, &map, &mlen) == 0) {
+  	   c->uoa_addr_text.data = ngx_pnalloc(c->pool, NGX_INET_ADDRSTRLEN);
+  	   if (c->uoa_addr_text.data == NULL) {
+               return;
+          }
+	   c->uoa_addr_text.len = ngx_inet_ntop(map.real_af, &map.real_saddr.in, c->uoa_addr_text.data, NGX_INET_ADDRSTRLEN);
+      }
+      break;
+  
+#if (NGX_HAVE_INET6)
+  case AF_INET6:
+      sin6 = (struct sockaddr_in6 *) c->sockaddr;
+      memset(&map, 0, sizeof(map));
+      map.af	= af;
+      map.sport = sin6->sin6_port;
+      map.dport = htons(443);
+      memmove(&map.saddr, &sin6->sin6_addr, sizeof(struct in6_addr));
+      mlen = sizeof(map);
+
+      if (getsockopt(c->fd, IPPROTO_IP, UOA_SO_GET_LOOKUP, &map, &mlen) == 0) {
+          c->uoa_addr_text.data = ngx_pnalloc(c->pool, NGX_INET6_ADDRSTRLEN);
+          if (c->uoa_addr_text.data == NULL) {
+               return;
+          }
+	  c->uoa_addr_text.len = ngx_inet_ntop(map.real_af, &map.real_saddr.in6, c->uoa_addr_text.data, NGX_INET6_ADDRSTRLEN);
+      }
+      break;
+#endif
+
+  default:
+      break;
+  }
+
+}
+#endif
+
 static void
 ngx_http_quic_request_quic_2_ngx_in_chromium(void* ngx_connection,
                                              void *quic_stream,
@@ -136,7 +193,11 @@ ngx_http_quic_request_quic_2_ngx_in_chromium(void* ngx_connection,
   if (c == NULL) {
     return;
   }
-    
+
+#ifdef UOA
+  ngx_http_quic_handler_uoa_addr(c);
+#endif
+ 
   // quic me
   buf = ngx_create_temp_buf(c->pool, header_len + body_len);
   if (buf == NULL) {

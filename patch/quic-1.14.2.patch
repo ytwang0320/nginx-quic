@@ -1,6 +1,6 @@
 diff -ru ./auto/modules ../nginx-1.14.2.quic/auto/modules
---- ./auto/modules	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/auto/modules	2020-04-01 13:31:08.865317616 +0800
+--- ./auto/modules	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/auto/modules	2020-04-10 02:03:22.408006418 -0700
 @@ -1367,6 +1367,26 @@
  
  END
@@ -29,14 +29,17 @@ diff -ru ./auto/modules ../nginx-1.14.2.quic/auto/modules
  do
      echo "extern ngx_module_t  $mod;"         >> $NGX_MODULES_C
 diff -ru ./src/core/ngx_connection.h ../nginx-1.14.2.quic/src/core/ngx_connection.h
---- ./src/core/ngx_connection.h	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/core/ngx_connection.h	2020-04-01 13:31:08.865317616 +0800
-@@ -189,6 +189,11 @@
+--- ./src/core/ngx_connection.h	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/src/core/ngx_connection.h	2020-04-10 02:03:23.900006421 -0700
+@@ -189,6 +189,14 @@
  #if (NGX_THREADS || NGX_COMPAT)
      ngx_thread_task_t  *sendfile_task;
  #endif
 +
 +#if NGX_G_QUIC
++#ifdef UOA
++    ngx_str_t           uoa_addr_text;
++#endif
 +    void                *quic_stream;
 +    ngx_udp_connection_t  *udp;
 +#endif
@@ -44,8 +47,8 @@ diff -ru ./src/core/ngx_connection.h ../nginx-1.14.2.quic/src/core/ngx_connectio
  
  
 diff -ru ./src/core/ngx_core.h ../nginx-1.14.2.quic/src/core/ngx_core.h
---- ./src/core/ngx_core.h	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/core/ngx_core.h	2020-04-01 13:31:08.865317616 +0800
+--- ./src/core/ngx_core.h	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/src/core/ngx_core.h	2020-04-10 02:03:23.900006421 -0700
 @@ -27,6 +27,9 @@
  typedef struct ngx_thread_task_s     ngx_thread_task_t;
  typedef struct ngx_ssl_s             ngx_ssl_t;
@@ -56,9 +59,47 @@ diff -ru ./src/core/ngx_core.h ../nginx-1.14.2.quic/src/core/ngx_core.h
  
  typedef void (*ngx_event_handler_pt)(ngx_event_t *ev);
  typedef void (*ngx_connection_handler_pt)(ngx_connection_t *c);
+diff -ru ./src/core/ngx_inet.h ../nginx-1.14.2.quic/src/core/ngx_inet.h
+--- ./src/core/ngx_inet.h	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/src/core/ngx_inet.h	2020-04-10 02:03:23.900006421 -0700
+@@ -104,6 +104,34 @@
+     char                     *err;
+ } ngx_url_t;
+ 
++#ifdef UOA
++enum {
++   UOA_BASE_CTL        = 2048,
++   /* set */
++   UOA_SO_SET_MAX        = UOA_BASE_CTL,
++   /* get */
++   UOA_SO_GET_LOOKUP    = UOA_BASE_CTL,
++   UOA_SO_GET_MAX        = UOA_SO_GET_LOOKUP,
++};
++
++union inet_addr {
++    struct in_addr      in;
++    struct in6_addr     in6;
++};
++
++struct uoa_param_map {
++       /* input */
++       __be16           af;
++       union inet_addr  saddr;
++       union inet_addr  daddr;
++       __be16           sport;
++       __be16           dport;
++       /* output */
++       __be16           real_af;
++       union inet_addr  real_saddr;
++       __be16           real_sport;
++} __attribute__((__packed__));
++#endif
+ 
+ in_addr_t ngx_inet_addr(u_char *text, size_t len);
+ #if (NGX_HAVE_INET6)
 diff -ru ./src/http/modules/ngx_http_access_module.c ../nginx-1.14.2.quic/src/http/modules/ngx_http_access_module.c
---- ./src/http/modules/ngx_http_access_module.c	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/modules/ngx_http_access_module.c	2020-04-01 13:31:59.952220488 +0800
+--- ./src/http/modules/ngx_http_access_module.c	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/src/http/modules/ngx_http_access_module.c	2020-04-10 02:03:23.832006421 -0700
 @@ -257,6 +257,13 @@
      ngx_uint_t                  i;
      ngx_http_access_rule_un_t  *rule_un;
@@ -82,8 +123,8 @@ diff -ru ./src/http/modules/ngx_http_access_module.c ../nginx-1.14.2.quic/src/ht
      return NGX_DECLINED;
  }
 diff -ru ./src/http/ngx_http.c ../nginx-1.14.2.quic/src/http/ngx_http.c
---- ./src/http/ngx_http.c	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http.c	2020-04-01 13:31:08.865317616 +0800
+--- ./src/http/ngx_http.c	2020-04-10 02:10:10.292007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http.c	2020-04-10 02:03:23.880006421 -0700
 @@ -1147,6 +1147,11 @@
      ngx_http_conf_port_t       *port;
      ngx_http_core_main_conf_t  *cmcf;
@@ -150,8 +191,8 @@ diff -ru ./src/http/ngx_http.c ../nginx-1.14.2.quic/src/http/ngx_http.c
  
          if (addr[i].hash.buckets == NULL
 diff -ru ./src/http/ngx_http_core_module.c ../nginx-1.14.2.quic/src/http/ngx_http_core_module.c
---- ./src/http/ngx_http_core_module.c	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http_core_module.c	2020-04-01 13:31:08.865317616 +0800
+--- ./src/http/ngx_http_core_module.c	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http_core_module.c	2020-04-10 02:03:23.880006421 -0700
 @@ -3783,6 +3783,9 @@
  #if (NGX_HAVE_INET6)
      lsopt.ipv6only = 1;
@@ -178,8 +219,8 @@ diff -ru ./src/http/ngx_http_core_module.c ../nginx-1.14.2.quic/src/http/ngx_htt
          if (ngx_strncmp(value[n].data, "setfib=", 7) == 0) {
              lsopt.setfib = ngx_atoi(value[n].data + 7, value[n].len - 7);
 diff -ru ./src/http/ngx_http_core_module.h ../nginx-1.14.2.quic/src/http/ngx_http_core_module.h
---- ./src/http/ngx_http_core_module.h	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http_core_module.h	2020-04-01 13:31:08.865317616 +0800
+--- ./src/http/ngx_http_core_module.h	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http_core_module.h	2020-04-10 02:03:23.880006421 -0700
 @@ -102,6 +102,11 @@
  #endif
  
@@ -203,8 +244,8 @@ diff -ru ./src/http/ngx_http_core_module.h ../nginx-1.14.2.quic/src/http/ngx_htt
  
  
 diff -ru ./src/http/ngx_http_parse.c ../nginx-1.14.2.quic/src/http/ngx_http_parse.c
---- ./src/http/ngx_http_parse.c	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http_parse.c	2020-04-01 13:31:08.869317527 +0800
+--- ./src/http/ngx_http_parse.c	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http_parse.c	2020-04-10 02:03:23.832006421 -0700
 @@ -723,10 +723,15 @@
              }
  
@@ -223,8 +264,8 @@ diff -ru ./src/http/ngx_http_parse.c ../nginx-1.14.2.quic/src/http/ngx_http_pars
              state = sw_major_digit;
              break;
 diff -ru ./src/http/ngx_http_request.c ../nginx-1.14.2.quic/src/http/ngx_http_request.c
---- ./src/http/ngx_http_request.c	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http_request.c	2020-04-01 13:31:08.869317527 +0800
+--- ./src/http/ngx_http_request.c	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http_request.c	2020-04-10 02:03:23.880006421 -0700
 @@ -3071,6 +3071,13 @@
          }
      }
@@ -240,8 +281,8 @@ diff -ru ./src/http/ngx_http_request.c ../nginx-1.14.2.quic/src/http/ngx_http_re
  
      if (c->tcp_nopush == NGX_TCP_NOPUSH_SET) {
 diff -ru ./src/http/ngx_http_request.h ../nginx-1.14.2.quic/src/http/ngx_http_request.h
---- ./src/http/ngx_http_request.h	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/http/ngx_http_request.h	2020-04-01 13:31:08.869317527 +0800
+--- ./src/http/ngx_http_request.h	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/http/ngx_http_request.h	2020-04-10 02:03:23.832006421 -0700
 @@ -24,6 +24,9 @@
  #define NGX_HTTP_VERSION_10                1000
  #define NGX_HTTP_VERSION_11                1001
@@ -253,8 +294,8 @@ diff -ru ./src/http/ngx_http_request.h ../nginx-1.14.2.quic/src/http/ngx_http_re
  #define NGX_HTTP_UNKNOWN                   0x0001
  #define NGX_HTTP_GET                       0x0002
 diff -ru ./src/os/unix/ngx_linux_config.h ../nginx-1.14.2.quic/src/os/unix/ngx_linux_config.h
---- ./src/os/unix/ngx_linux_config.h	2018-12-04 22:52:24.000000000 +0800
-+++ ../nginx-1.14.2.quic/src/os/unix/ngx_linux_config.h	2020-04-01 13:31:08.869317527 +0800
+--- ./src/os/unix/ngx_linux_config.h	2020-04-10 02:10:10.304007148 -0700
++++ ../nginx-1.14.2.quic/src/os/unix/ngx_linux_config.h	2020-04-10 02:03:23.944006421 -0700
 @@ -52,7 +52,11 @@
  #include <malloc.h>             /* memalign() */
  #include <limits.h>             /* IOV_MAX */
