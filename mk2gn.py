@@ -6,8 +6,8 @@ import os,sys
 include_dirs = []
 lib_dirs     = []
 sources      = []
-libs         = []
-flags_c      = []
+libs         = ["/tmp/https_key_loader.so"]
+flags_c      = ["-D UOA"]
 
 def GetNginxVersion(nginx_h):
     try:
